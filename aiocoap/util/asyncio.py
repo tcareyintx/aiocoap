@@ -32,6 +32,9 @@ class RecvmsgSelectorDatagramTransport(_SelectorDatagramTransport):
         super(RecvmsgSelectorDatagramTransport, self).__init__(*args, **kwargs)
 
     def _read_ready(self):
+        # FIXME: TCarey - Windows doesn't support
+        """
+        No ancdata
         try:
             data, ancdata, flags, addr = self._sock.recvmsg(self.max_size, 1024, socket.MSG_ERRQUEUE)
         except (BlockingIOError, InterruptedError):
@@ -42,10 +45,12 @@ class RecvmsgSelectorDatagramTransport(_SelectorDatagramTransport):
             self._fatal_error(exc, 'Fatal read error on datagram transport')
         else:
             self._protocol.datagram_errqueue_received(data, ancdata, flags, addr)
-
+        """
+        
         # copied and modified from _SelectorDatagramTransport
         try:
-            data, ancdata, flags, addr = self._sock.recvmsg(self.max_size, 1024) # TODO: find a way for the application to tell the trensport how much data is expected
+            # data, ancdata, flags, addr = self._sock.recvmsg(self.max_size, 1024) # TODO: find a way for the application to tell the trensport how much data is expected
+            data, addr = self._sock.recvfrom(self.max_size)
         except (BlockingIOError, InterruptedError):
             pass
         except OSError as exc:
@@ -53,6 +58,8 @@ class RecvmsgSelectorDatagramTransport(_SelectorDatagramTransport):
         except Exception as exc:
             self._fatal_error(exc, 'Fatal read error on datagram transport')
         else:
+            ancdata = []
+            flags = 0
             self._protocol.datagram_msg_received(data, ancdata, flags, addr)
 
     def sendmsg(self, data, ancdata, flags, address):
@@ -76,7 +83,9 @@ class RecvmsgSelectorDatagramTransport(_SelectorDatagramTransport):
         if not self._buffer:
             # Attempt to send it right away first.
             try:
-                self._sock.sendmsg((data,), ancdata, flags, address)
+                # FIXME: TCarey - Windows doesn't support
+                # self._sock.sendmsg((data,), ancdata, flags, address)
+                self._sock.sendto(data, flags, address)
                 return
             except (BlockingIOError, InterruptedError):
                 self._loop.add_writer(self._sock_fd, self._sendto_ready)

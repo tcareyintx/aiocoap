@@ -74,26 +74,34 @@ class TransportEndpointUDP6(RecvmsgDatagramProtocol, interfaces.TransportEndpoin
 
     @classmethod
     @asyncio.coroutine
-    def _create_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to, bind):
+    def _create_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to, bind, family):
         protofact = lambda: cls(new_message_callback=new_message_callback, new_error_callback=new_error_callback, log=log, loop=loop)
         if dump_to is not None:
             protofact = TextDumper.endpointfactory(open(dump_to, 'w'), protofact)
 
-        transport, protocol = yield from loop.create_datagram_endpoint(protofact, family=socket.AF_INET6)
-
+        # FIXME: TCarey transport, protocol = yield from loop.create_datagram_endpoint(protofact, family=socket.AF_INET6)
+        transport, protocol = yield from loop.create_datagram_endpoint(protofact, local_addr=bind, family=family)
+        
+        """
         sock = transport._sock
-
-        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_RECVPKTINFO, 1)
-        sock.setsockopt(socket.IPPROTO_IPV6, socknumbers.IPV6_RECVERR, 1)
+        #sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.setsockopt(41, socket.IPV6_V6ONLY, 0)
+        
+        # sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_RECVPKTINFO, 1)
+        # sock.setsockopt(41, socket.IPV6_PKTINFO, 1)
+        
+        # this'd feel more comfortable if the IN module were documented anywhere
+        #sock.setsockopt(socket.IPPROTO_IPV6, IN.IPV6_RECVERR, 1)
+        
         # i'm curious why this is required; didn't IPV6_V6ONLY=0 already make
         # it clear that i don't care about the ip version as long as everything looks the same?
-        sock.setsockopt(socket.IPPROTO_IP, socknumbers.IP_RECVERR, 1)
+        # sock.setsockopt(socket.IPPROTO_IP, IN.IP_RECVERR, 1)
 
         if bind is not None:
             # FIXME: SO_REUSEPORT should be safer when available (no port hijacking), and the test suite should work with it just as well (even without). why doesn't it?
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(bind)
+        """
 
         if dump_to is not None:
             protocol = protocol.protocol
@@ -104,13 +112,13 @@ class TransportEndpointUDP6(RecvmsgDatagramProtocol, interfaces.TransportEndpoin
 
     @classmethod
     @asyncio.coroutine
-    def create_client_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to):
-        return (yield from cls._create_transport_endpoint(new_message_callback, new_error_callback, log, loop, dump_to, None))
+    def create_client_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to, bind, family):
+        return (yield from cls._create_transport_endpoint(new_message_callback, new_error_callback, log, loop, dump_to, bind, family))
 
     @classmethod
     @asyncio.coroutine
-    def create_server_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to, bind):
-        return (yield from cls._create_transport_endpoint(new_message_callback, new_error_callback, log, loop, dump_to, bind))
+    def create_server_transport_endpoint(cls, new_message_callback, new_error_callback, log, loop, dump_to, bind, family):
+        return (yield from cls._create_transport_endpoint(new_message_callback, new_error_callback, log, loop, dump_to, bind, family))
 
     @asyncio.coroutine
     def shutdown(self):
@@ -189,13 +197,14 @@ class TransportEndpointUDP6(RecvmsgDatagramProtocol, interfaces.TransportEndpoin
         pktinfo = None
         errno = None
         for cmsg_level, cmsg_type, cmsg_data in ancdata:
-            assert cmsg_level == socket.IPPROTO_IPV6
-            if cmsg_type == socknumbers.IPV6_RECVERR:
-                errno = SockExtendedErr.load(cmsg_data).ee_errno
-            elif cmsg_level == socket.IPPROTO_IPV6 and cmsg_type == socknumbers.IPV6_PKTINFO:
-                pktinfo = cmsg_data
-            else:
-                self.log.info("Received unexpected ancillary data to recvmsg errqueue: level %d, type %d, data %r", cmsg_level, cmsg_type, cmsg_data)
+            assert cmsg_level == socket.IPROTO_IPV6
+            # FIXME: TCarey
+            # if cmsg_type == IN.IPV6_RECVERR:
+                # errno = SockExtendedErr.load(cmsg_data).ee_errno
+            # elif cmsg_level == socket.IPPROTO_IPV6 and cmsg_type == IN.IPV6_PKTINFO:
+                # pktinfo = cmsg_data
+            # else:IPPROTO_IPV6
+            self.log.info("Received unexpected ancillary data to recvmsg errqueue: level %d, type %d, data %r", cmsg_level, cmsg_type, cmsg_data)
         remote = UDP6EndpointAddress(address, pktinfo=pktinfo)
 
         # not trying to decode a message from data -- that works for

@@ -50,6 +50,8 @@ from . import interfaces
 from .numbers import *
 from .message import Message
 
+from .transports.udp6 import TransportEndpointUDP6
+
 class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
     """An object that passes messages between an application and the network
 
@@ -494,7 +496,7 @@ class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
 
     @classmethod
     @asyncio.coroutine
-    def create_client_context(cls, *, dump_to=None, loggername="coap", loop=None):
+    def create_client_context(cls, *, bind=None, dump_to=None, loggername="coap", loop=None, family=socket.AF_INET6):
         """Create a context bound to all addresses on a random listening port.
 
         This is the easiest way to get an context suitable for sending client
@@ -506,15 +508,15 @@ class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
 
         self = cls(loop=loop, serversite=None, loggername=loggername)
 
-        from .transports.udp6 import TransportEndpointUDP6
+        # from .transports.udp6 import TransportEndpointUDP6
 
-        self.transport_endpoints.append((yield from TransportEndpointUDP6.create_client_transport_endpoint(new_message_callback=self._dispatch_message, new_error_callback=self._dispatch_error, log=self.log, loop=loop, dump_to=dump_to)))
+        self.transport_endpoints.append((yield from TransportEndpointUDP6.create_client_transport_endpoint(new_message_callback=self._dispatch_message, new_error_callback=self._dispatch_error, log=self.log, loop=loop, dump_to=dump_to, bind=bind, family=family)))
 
         return self
 
     @classmethod
     @asyncio.coroutine
-    def create_server_context(cls, site, bind=("::", COAP_PORT), *, dump_to=None, loggername="coap-server", loop=None):
+    def create_server_context(cls, site, bind=("::", COAP_PORT), *, dump_to=None, loggername="coap-server", loop=None, family=socket.AF_INET6):
         """Create an context, bound to all addresses on the CoAP port (unless
         otherwise specified in the ``bind`` argument).
 
@@ -526,10 +528,9 @@ class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
 
         self = cls(loop=loop, serversite=site, loggername=loggername)
 
-        from .transports.udp6 import TransportEndpointUDP6
+        # from .transports.udp6 import Transport
 
-        self.transport_endpoints.append((yield from TransportEndpointUDP6.create_server_transport_endpoint(new_message_callback=self._dispatch_message, new_error_callback=self._dispatch_error, log=self.log, loop=loop, dump_to=dump_to, bind=bind)))
-
+        self.transport_endpoints.append((yield from TransportEndpointUDP6.create_server_transport_endpoint(new_message_callback=self._dispatch_message, new_error_callback=self._dispatch_error, log=self.log, loop=loop, dump_to=dump_to, bind=bind, family=family)))
         return self
 
     def kill_transactions(self, remote, exception=error.CommunicationKilled):
@@ -661,8 +662,12 @@ class Request(BaseRequest, interfaces.Request):
             """Clean the Request after a timeout."""
 
             self.log.info("Request timed out")
-            del self.protocol.outgoing_requests[(request.token, request.remote)]
-            self._set_response_and_observation_error(error.RequestTimedOut())
+            #FIXME: TCarey: This delete caused a key error; catching the exception now
+            try:
+                del self.protocol.outgoing_requests[(request.token, request.remote)]
+                self._set_response_and_observation_error(error.RequestTimedOut())
+            except:
+                pass
 
         if request.mtype is None:
             request.mtype = CON
