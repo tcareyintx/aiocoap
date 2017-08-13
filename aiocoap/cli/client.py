@@ -26,8 +26,9 @@ except ImportError:
 import aiocoap
 import aiocoap.proxy.client
 
-def parse_commandline(args):
+def build_parser():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--non', help="Send request as non-confirmable (NON) message", action='store_true')
     p.add_argument('-m', '--method', help="Name or number of request method to use (default: %(default)s)", default="GET")
     p.add_argument('--observe', help="Register an observation on the resource", action='store_true')
     p.add_argument('--observe-exec', help="Run the specified program whenever the observed resource changes, feeding the response data to its stdin", metavar='CMD')
@@ -41,7 +42,7 @@ def parse_commandline(args):
     p.add_argument('--interactive', help="Enter interactive mode", action="store_true")
     p.add_argument('url', help="CoAP address to fetch")
 
-    return p, p.parse_args(args)
+    return p
 
 def configure_logging(verbosity):
     logging.basicConfig()
@@ -74,7 +75,8 @@ def incoming_observation(options, response):
 
 @asyncio.coroutine
 def single_request(args, context=None):
-    parser, options = parse_commandline(args)
+    parser = build_parser()
+    options = parser.parse_args(args)
 
     configure_logging((options.verbose or 0) - (options.quiet or 0))
 
@@ -92,7 +94,7 @@ def single_request(args, context=None):
         if options.dump:
             print("The --dump option is not implemented in interactive mode.", file=sys.stderr)
 
-    request = aiocoap.Message(code=code)
+    request = aiocoap.Message(code=code, mtype=aiocoap.NON if options.non else aiocoap.CON)
     try:
         request.set_request_uri(options.url)
     except ValueError as e:

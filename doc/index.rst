@@ -18,9 +18,6 @@
    module/aiocoap.proxy
    module/aiocoap.proxy.client
    module/aiocoap.proxy.server
-   module/aiocoap.cli
-   module/aiocoap.cli.client
-   module/aiocoap.cli.proxy
    module/aiocoap.numbers
    module/aiocoap.error
    module/aiocoap.optiontypes
@@ -29,8 +26,12 @@
    module/aiocoap.util
    module/aiocoap.util.asyncio
    module/aiocoap.util.cli
-   module/aiocoap.util.queuewithend
    module/aiocoap.util.socknumbers
+   module/aiocoap.util.crypto
+   module/aiocoap.util.secrets
+   module/aiocoap.cli
+
+   module/aiocoap.oscoap
 
    examples
    tools

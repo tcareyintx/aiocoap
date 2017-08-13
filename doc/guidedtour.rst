@@ -6,13 +6,19 @@ rough familiarity with what CoAP is, and a working knowledge of Python
 development, but introduce you to asynchronous programming and explain some
 CoAP concepts along with the aiocoap API.
 
+If you are already familiar with asynchronous programming and/or some other
+concepts involved, or if you prefer reading code to reading tutorials, you
+might want to go after the :doc:`examples` instead.
+
 First, some tools
 -----------------
 
 Before we get into programming, let's establish tools with which we can probe a
-server, and a server itself.
+server, and a server itself. If you have not done it already,
+:doc:`install aiocoap for development<installation>`.
 
-Start off with the sample server by running the following in a terminal::
+Start off with the sample server by running the following in a terminal inside
+the aiocoap directory::
 
     $ ./server.py
 

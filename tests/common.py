@@ -6,7 +6,11 @@
 # aiocoap is free software, this file is published under the MIT license as
 # described in the accompanying LICENSE file.
 
-"""Module that contains the various test scenarios.
+"""Non-fixture utilities shared between tests"""
 
-Can be used most easily from setup.py as `./setup.py test` (which installs als
-test dependencies), or `python3 -m unittest` (which just runs the tests)."""
+import sys
+
+if 'coverage' in sys.modules:
+    PYTHON_PREFIX = [sys.executable, '-m', 'coverage', 'run', '--parallel-mode']
+else:
+    PYTHON_PREFIX = [sys.executable]

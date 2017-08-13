@@ -31,9 +31,9 @@ class Code(ExtensibleIntEnum):
     POST = 2
     PUT = 3
     DELETE = 4
-    FETCH = 5 # draft-ietf-core-etch-04
-    PATCH = 6 # draft-ietf-core-etch-04
-    iPATCH = 7 # draft-ietf-core-etch-04
+    FETCH = 5
+    PATCH = 6
+    iPATCH = 7
     CREATED = 65
     DELETED = 66
     VALID = 67
@@ -48,11 +48,12 @@ class Code(ExtensibleIntEnum):
     METHOD_NOT_ALLOWED = 133
     NOT_ACCEPTABLE = 134
     REQUEST_ENTITY_INCOMPLETE = 136
-    CONFLICT = (4 << 5) + 9 # draft-ietf-core-etch-04
+    CONFLICT = (4 << 5) + 9
     PRECONDITION_FAILED = 140
     REQUEST_ENTITY_TOO_LARGE = 141
-    UNSUPPORTED_MEDIA_TYPE = 143
-    UNPROCESSABLE_ENTITY = (4 << 5) + 22 # draft-ietf-core-etch-04
+    UNSUPPORTED_CONTENT_FORMAT = 143
+    UNSUPPORTED_MEDIA_TYPE = UNSUPPORTED_CONTENT_FORMAT # deprecated alias
+    UNPROCESSABLE_ENTITY = (4 << 5) + 22
     INTERNAL_SERVER_ERROR = 160
     NOT_IMPLEMENTED = 161
     BAD_GATEWAY = 162
@@ -73,6 +74,11 @@ class Code(ExtensibleIntEnum):
     def is_successful(self):
         """True if the code is in the successful subrange of the response code range"""
         return True if (self >= 64 and self < 96) else False
+
+    def can_have_payload(self):
+        """True if a message with that code can carry a payload. This is not
+        checked for strictly, but used as an indicator."""
+        return self.is_response() or self in (self.POST, self.PUT, self.FETCH, self.PATCH, self.iPATCH)
 
     @property
     def dotted(self):

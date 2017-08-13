@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.abspath('..'))
 extensions = [
     'sphinx.ext.autodoc',
     'aiocoap_index',
+    'sphinxarg.ext',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -164,7 +165,8 @@ html_static_path = ['_static']
 #html_split_index = False
 
 # If true, links to the reST sources are added to the pages.
-#html_show_sourcelink = True
+# it's in most cases just autodoc text
+html_show_sourcelink = False
 
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
 #html_show_sphinx = True
@@ -184,3 +186,9 @@ html_static_path = ['_static']
 htmlhelp_basename = 'aiocoap'
 
 autodoc_member_order = 'bysource'
+
+
+man_pages = [
+        ('module/aiocoap.cli.client', 'aiocoap-client', 'query CoAP servers from the command line', '', 1),
+        ('module/aiocoap.cli.proxy', 'aiocoap-proxy', 'forward and reverse proxy server for CoAP', '', 1),
+        ]

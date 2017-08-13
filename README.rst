@@ -35,8 +35,15 @@ This library supports the following standards in full or partially:
 * RFC7641_ (Observe): Reordering, re-registration, and active cancellation are
   missing.
 * RFC7959_ (Blockwise): Multicast exceptions missing.
-* draft-ietf-core-etch-04_: Only registry entries added, but that should be all
-  that's neede on the library side.
+* RFC7967_ (No-Response): Basic support, but not automated in library
+* RFC8132_ (PATCH/FETCH): Types and codes known (rest is up to the application)
+* draft-ietf-core-resource-directory-10_: A standalone resource directory
+  server is provided along with a library function to register at one. They
+  lack support for groups, PATCHes to endpoint locations and security
+  considerations, and are generally rather simplistic.
+* draft-ietf-core-object-security-02_ (OSCOAP): Infrastructure for supporting
+  it is in place (lacking observe and inner-blockwise support), but no simple
+  way exists yet for launching protected servers or requests yet.
 
 If something described by one of the standards but not implemented, it is
 considered a bug; please file at the `github issue tracker`_. (If it's not on
@@ -45,21 +52,24 @@ the list or in the excluded items, file a wishlist item at the same location).
 .. _RFC7252: https://tools.ietf.org/html/rfc7252
 .. _RFC7641: https://tools.ietf.org/html/rfc7641
 .. _RFC7959: https://tools.ietf.org/html/rfc7959
-.. _draft-ietf-core-etch-04: https://tools.ietf.org/html/draft-ietf-core-etch-04
+.. _RFC7967: https://tools.ietf.org/html/rfc7967
+.. _RFC8132: https://tools.ietf.org/html/rfc8132
+.. _draft-ietf-core-resource-directory-10: https://tools.ietf.org/html/draft-ietf-core-resource-directory-10
+.. _draft-ietf-core-object-security-02: https://tools.ietf.org/html/draft-ietf-core-object-security-02
 
 Dependencies
 ------------
 
-The core aiocoap functionality works out of the box with Python_ 3.4; with the
-additional asyncio_ module, it works with version 3.3 as well. The
-examples_ require Python 3.5 or newer.
+Basic aiocoap works out of the box on Python_ 3.4 or greater.
 
-When application/link-format typed resources (`RFC 6690`_) are supposed to be
-used, the `link_header`_ module is required as well. When the respective code
-paths are used without the module, an ``ImportError`` will be raised, or a
-5.00 status code will be returned. Python modules that implement servers or
-use discovery with aiocoap should declare a dependency on
-``'aiocoap[linkheader]'`` instead of ``'aiocoap'``.
+The examples_ require Python 3.5 as they use newer syntax.
+
+Some components (eg. servers that should auto-generate ``.well-known/core``
+resources, OSCOAP) require additional packages to be present (eg. the
+`link_header`_ module or Python 3.6's backported secrets module); those are
+reflected in "extras" dependencies, see ``setup.py`` for details. Python
+modules that require all features should declare a dependency on
+``aiocoap[all]``.
 
 .. _Python: https://www.python.org/
 .. _asyncio: https://pypi.python.org/pypi/asyncio

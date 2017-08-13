@@ -6,18 +6,55 @@
 # aiocoap is free software, this file is published under the MIT license as
 # described in the accompanying LICENSE file.
 
-"""asyncio workarounds"""
+"""Extensions to asyncio and workarounds around its shortcomings"""
 
 import asyncio.events
 
 def cancel_thoroughly(handle):
     """Use this on a (Timer)Handle when you would .cancel() it, just also drop
     the callback and arguments for them to be freed soon."""
+    # obsolete as of f68bd88a (around 3.4.3) -- so can be dropped when 3.4
+    # support is dropped
 
     assert isinstance(handle, asyncio.events.Handle)
 
     handle.cancel()
     handle._args = handle._callback = None
+
+import asyncio
+try:
+    from asyncio import StopAsyncIteration
+except ImportError:
+    class StopAsyncIteration(Exception):
+        """Iteration stopper defined to make the asynchronous iterator
+        interface usable on Python 3.4"""
+
+class AsyncGenerator:
+    """An object implementing the __aiter__ protocol until `async def / yield`
+    can be used in all supported versions"""
+
+    def __init__(self):
+        self._queue = asyncio.Queue() #: (data, exception) tuples -- data is valid iff exception is None
+
+    def __aiter__(self):
+        return self
+
+    @asyncio.coroutine
+    def __anext__(self):
+        data, exception = yield from self._queue.get()
+        if exception is None:
+            return data
+        else:
+            raise exception
+
+    def throw(self, exception):
+        self._queue.put_nowait((None, exception))
+
+    def ayield(self, item):
+        self._queue.put_nowait((item, None))
+
+    def finish(self):
+        self.throw(StopAsyncIteration)
 
 from asyncio import DatagramProtocol
 from asyncio.selector_events import _SelectorDatagramTransport, BaseSelectorEventLoop

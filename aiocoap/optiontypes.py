@@ -127,7 +127,30 @@ class BlockOption(OptionType):
 
         @property
         def start(self):
+            """The byte offset in the body indicated by block number and size.
+
+            Note that this calculation is only valid for descriptive use and
+            Block2 control use. The semantics of block_number and size in
+            Block1 control use are unrelated (indicating the acknowledged block
+            number in the request Block1 size and the server's preferred block
+            size), and must not be calculated using this property in that
+            case."""
             return self.block_number * self.size
+
+        def reduced_to(self, maximum_exponent):
+            """Return a BlockwiseTuple whose exponent is capped to the given
+            maximum_exponent
+
+            >>> initial = BlockOption.BlockwiseTuple(10, 0, 5)
+            >>> initial == initial.reduced_to(6)
+            True
+            >>> initial.reduced_to(3)
+            BlockwiseTuple(block_number=40, more=0, size_exponent=3)
+            """
+            if maximum_exponent >= self.size_exponent:
+                return self
+            increasednumber = self.block_number << (self.size_exponent - maximum_exponent)
+            return type(self)(increasednumber, self.more, maximum_exponent)
 
     def __init__(self, number, value=None):
         if value is not None:

@@ -6,7 +6,9 @@
 # aiocoap is free software, this file is published under the MIT license as
 # described in the accompanying LICENSE file.
 
-"""Module that contains the various test scenarios.
+"""Implementations of draft-ietf-core-resource-directory
 
-Can be used most easily from setup.py as `./setup.py test` (which installs als
-test dependencies), or `python3 -m unittest` (which just runs the tests)."""
+Currently, this only contains the :mod:`client` module. There is an
+implementation of the server side contained in aiocoap, but it is currently
+accessible only as :mod:`command line application <aiocoap.cli.rd>`.
+"""

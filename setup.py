@@ -14,11 +14,27 @@
 
 from setuptools import setup, find_packages
 from distutils.core import Command
+import os
 
 name = "aiocoap"
 version = "0.3"
 description = "Python CoAP library"
 longdescription = __doc__
+
+extras_require = {
+        'linkheader': ['LinkHeader'],
+        'oscoap': ['hkdf', 'cbor', 'cffi'],
+        'docs': ['sphinx', 'sphinx-argparse'], # extended below
+        'all': [], # populated below, contains everything but documentation dependencies for easier installation
+        }
+tests_require = [] # populated below
+
+for k, v in extras_require.items():
+    if k.startswith(':') or k == 'all' or k == 'docs':
+        continue
+    extras_require['docs'].extend(v)
+    extras_require['all'].extend(v)
+    tests_require.extend(v)
 
 class Cite(Command):
     description = """Print how to cite aiocoap in a publication"""
@@ -69,11 +85,12 @@ setup(
         'Topic :: Software Development :: Libraries :: Python Modules',
         ],
 
-    python_requires='>=3.3',
-    extras_require={
-        'linkheader': ['LinkHeader'],
-        ':python_version<"3.4"': ['asyncio'],
-        },
+    python_requires='>=3.4',
+    extras_require=extras_require,
+    tests_require=tests_require,
+
+    # see doc/README.doc seciton "dependency hack"
+    install_requires=extras_require['docs'] if 'READTHEDOCS' in os.environ else [],
 
     entry_points={
         'console_scripts': [
@@ -82,17 +99,11 @@ setup(
             ]
         },
 
-    command_options={
-        'build_sphinx': {
-            'project': ('setup.py', name),
-            'version': ('setup.py', version),
-            'release': ('setup.py', version),
-            }
-        },
-
     cmdclass={
         'cite': Cite,
         },
 
+    # not strictly required any more since tests are now runnable as `-m
+    # unittest`, but results in more concise output
     test_suite='tests',
 )

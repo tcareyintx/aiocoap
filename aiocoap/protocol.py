@@ -29,10 +29,10 @@ import socket
 import asyncio
 import weakref
 
-from .util.queuewithend import QueueWithEnd
-from .util.asyncio import cancel_thoroughly
+from .util.asyncio import AsyncGenerator, cancel_thoroughly
 from .util import hostportjoin
 from . import error
+from .optiontypes import BlockOption
 
 import logging
 # log levels used:
@@ -48,59 +48,61 @@ import logging
 from . import error
 from . import interfaces
 from .numbers import *
-from .message import Message
+from .message import Message, NoResponse
 
 from .transports.udp6 import TransportEndpointUDP6
 
-class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
-    """An object that passes messages between an application and the network
 
-    A :class:`.Context` gets bound to a network interface as an asyncio
-    protocol. It manages the basic CoAP network mechanisms like message
-    deduplication and retransmissions, and delegates management of blockwise
-    transfer as well as the details of matching requests with responses to the
-    :class:`Request` and :class:`Responder` classes.
+class Context(interfaces.RequestProvider):
+    """Applications' entry point to the network
 
-    In that respect, a Context (as currently implemented) is also an endpoint.
-    It is anticipated, though, that issues arise due to which the
-    implementation won't get away with creating a single socket, and that it
-    will be required to deal with multiple endpoints. (E.g. the V6ONLY=0 option
-    is not portable to some OS, and implementations might need to bind to
-    different ports on different interfaces in multicast contexts). When those
-    distinctions will be implemented, message dispatch will stay with the
-    context, which will then deal with the individual endpoints.
+    A :class:`.Context` coordinates one or more network transport
+    implementations and dispatches data between them and the application.
 
-    In a way, a :class:`.Context` is the single object all CoAP messages that
-    get treated by a single application pass by.
+    The application can start requests using the message dispatch methods, and
+    set a :class:`resources.Site` that will answer requests directed to the
+    application as a server.
 
-    Context creation
-    ----------------
+    On the library-internals side, it is the prime implementation of the
+    :class:`interfaces.RequestProvider` interface, creates :class:`Request` and
+    :class:`Response` classes on demand, and decides which transport
+    implementations to start and which are to handle which messages.
 
-    Instead of passing a protocol factory to the asyncio loop's
-    create_datagram_endpoint method, the following convenience functions are
-    recommended for creating a context:
+    Currently, only one network transport is created, and the details of the
+    messaging layer of CoAP are managed in this class. It is expected that much
+    of the functionality will be moved into transports at latest when CoAP over
+    TCP and websockets is implemented.
+
+    **Context creation and destruction**
+
+    The following functions are provided for creating and stopping a context:
 
     .. automethod:: create_client_context
     .. automethod:: create_server_context
 
-    If you choose to create the context manually, make sure to wait for its
-    :attr:`ready` future to complete, as only then can messages be sent.
+    .. automethod:: shutdown
 
-    Dispatching messages
-    --------------------
+    **Dispatching messages**
 
-    A context's public API consists of the :meth:`send_message` function,
-    the :attr:`outgoing_requests`, :attr:`incoming_requests` and
-    :attr:`outgoing_obvservations` dictionaries, and the :attr:`serversite`
-    object, but those are not stabilized yet, and for most applications the
-    following convenience functions are more suitable:
+    CoAP requests can be sent using the following functions:
 
     .. automethod:: request
 
     .. automethod:: multicast_request
 
-    If more control is needed, eg. with observations, create a
-    :class:`Request` yourself and pass the context to it.
+    If more control is needed, you can create a :class:`Request` yourself and
+    pass the context to it.
+
+
+    **Other methods and properties**
+
+    The remaining methods and properties are to be considered unstable even
+    when the project reaches a stable version number; please file a feature
+    request for stabilization if you want to reliably access any of them.
+
+    (Sorry for the duplicates, still looking for a way to make autodoc list
+    everything not already mentioned).
+
     """
 
     def __init__(self, loop=None, serversite=None, loggername="coap"):
@@ -126,7 +128,10 @@ class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
         """Take down the listening socket and stop all related timers.
 
         After this coroutine terminates, and once all external references to
-        the object are dropped, it should be garbage-collectable."""
+        the object are dropped, it should be garbage-collectable.
+
+        This method may take the time to inform communications partners of
+        stopped observations (but currently does not)."""
 
         self.log.debug("Shutting down context")
         for exchange_monitor, cancellable in self._active_exchanges.values():
@@ -138,9 +143,6 @@ class Context(asyncio.DatagramProtocol, interfaces.RequestProvider):
         self._active_exchanges = None
 
         yield from asyncio.wait([te.shutdown() for te in self.transport_endpoints], timeout=3, loop=self.loop)
-
-    # pause_writing and resume_writing are not implemented, as the protocol
-    # should take care of not flooding the output itself anyway (NSTART etc).
 
     #
     # coap dispatch
@@ -827,7 +829,9 @@ class MulticastRequest(BaseRequest):
         if self.request.mtype != NON or self.request.code != GET or self.request.payload:
             raise ValueError("Multicast currently only supportet for NON GET")
 
-        self.responses = QueueWithEnd()
+        #: An asynchronous generator (``__aiter__`` / ``async for``) that
+        #: yields responses until it is exhausted after a timeout
+        self.responses = AsyncGenerator()
 
         asyncio.Task(self._init_phase2())
 
@@ -839,7 +843,7 @@ class MulticastRequest(BaseRequest):
 
             yield from self._send_request(self.request)
         except Exception as e:
-            self.responses.put_exception(e)
+            self.responses.throw(e)
 
     def _send_request(self, request):
         request.token = self.protocol.next_token()
@@ -847,7 +851,7 @@ class MulticastRequest(BaseRequest):
         try:
             self.protocol.send_message(request)
         except Exception as e:
-            self.responses.put_exception(e)
+            self.responses.throw(e)
             return
 
         self.protocol.outgoing_requests[(request.token, None)] = self
@@ -866,7 +870,7 @@ class MulticastRequest(BaseRequest):
         response.requested_query = self.request.opt.get_option(OptionNumber.URI_QUERY) or ()
 
         # FIXME this should somehow backblock, but it's udp -- maybe rather limit queue length?
-        asyncio.Task(self.responses.put(response))
+        self.responses.ayield(response)
 
     def _timeout(self):
         self.protocol.outgoing_requests.pop(self.request.token, None)
@@ -985,8 +989,6 @@ class Responder(object):
         else:
             request = initial_block
 
-        #TODO: Request with Block2 option and non-zero block number should get error response
-
         delayed_ack = self.protocol.loop.call_later(EMPTY_ACK_DELAY, self.send_empty_ack, request)
 
         yield from self.handle_observe_request(request)
@@ -1000,6 +1002,10 @@ class Responder(object):
             self.log.error("An exception occurred while rendering a resource: %r"%e)
             self.log.exception(e)
         else:
+            if response is NoResponse:
+                self.send_final_response(response, request)
+                return
+
             if response.code is None:
                 response.code = CONTENT
             if not response.code.is_response():
@@ -1029,13 +1035,8 @@ class Responder(object):
 
         self.log.debug("Preparing response...")
         self.app_response = app_response
-        size_exp = min(request.opt.block2.size_exponent if request.opt.block2 is not None else DEFAULT_BLOCK_SIZE_EXP, DEFAULT_BLOCK_SIZE_EXP)
-        if len(self.app_response.payload) > (2 ** (size_exp + 4)):
-            first_block = self.app_response._extract_block(0, size_exp)
-            self.app_response.opt.block2 = first_block.opt.block2
-            self.send_non_final_response(first_block, request)
-        else:
-            self.send_final_response(app_response, request)
+
+        self.process_block2_in_request(request)
 
     def process_block2_in_request(self, request):
         """Process incoming request with regard to Block2 option
@@ -1043,29 +1044,40 @@ class Responder(object):
         Method is recursive - calls itself until all response blocks are sent
         to client."""
 
-        if request.opt.block2 is not None:
-            block2 = request.opt.block2
+        block2 = request.opt.block2
+        if block2 is None:
+            self.log.debug("Request without block option received into exting blockwise transfer, treating it as first block request.")
+            block2 = BlockOption.BlockwiseTuple(0, 0, DEFAULT_BLOCK_SIZE_EXP)
+        else:
             self.log.debug("Request with Block2 option received, number = %d, more = %d, size_exp = %d." % (block2.block_number, block2.more, block2.size_exponent))
 
-            next_block = self.app_response._extract_block(block2.block_number, block2.size_exponent)
-            if next_block is None:
-                # TODO is this the right error code here?
-                self.respond_with_error(request, REQUEST_ENTITY_INCOMPLETE, "Request out of range")
-                return
-            if next_block.opt.block2.more is True:
-                self.app_response.opt.block2 = next_block.opt.block2
-                self.send_non_final_response(next_block, request)
-            else:
-                self.send_final_response(next_block, request)
+        # the application may guide the choice of block sizes
+        if self.app_response.opt.block2:
+            block2 = block2.reduced_to(self.app_response.opt.block2.size_exponent)
         else:
+            block2 = block2.reduced_to(DEFAULT_BLOCK_SIZE_EXP)
+
+        if block2.start == 0 and block2.size >= len(self.app_response.payload):
+            self.send_final_response(self.app_response, request)
+            return
+
+        next_block = self.app_response._extract_block(block2.block_number, block2.size_exponent)
+        if next_block is None:
             # TODO is this the right error code here?
-            self.respond_with_error(request, REQUEST_ENTITY_INCOMPLETE, "Requests after a block2 response must carry the block2 option.")
+            self.send_final_response(Message(code=REQUEST_ENTITY_INCOMPLETE, payload=b"Request out of range"), request)
+            return
+        if next_block.opt.block2.more is True:
+            self.app_response.opt.block2 = next_block.opt.block2
+            self.send_non_final_response(next_block, request)
+        else:
+            self.send_final_response(next_block, request)
 
     def send_non_final_response(self, response, request):
         """Helper method to send a response to client, and setup a timeout for
         client. This also registers the responder with the protocol again to
         receive the next message."""
 
+        self.log.debug("Keeping the app_response around for some more time")
         key = tuple(request.opt.uri_path), request.remote
 
         def timeout_non_final_response(self):
@@ -1099,6 +1111,12 @@ class Responder(object):
            - sending any error response
         """
 
+        if response is NoResponse:
+            self.log.debug("Sending NoResponse")
+            if request.mtype is CON and not self._sent_empty_ack:
+                self.send_empty_ack(request, "gave NoResponse")
+            return
+
         response.token = request.token
         self.log.debug("Sending token: %s" % (binascii.b2a_hex(response.token).decode('ascii'),))
         response.remote = request.remote
@@ -1117,14 +1135,14 @@ class Responder(object):
         self.log.debug("Sending response, type = %s (request type = %s)" % (response.mtype, request.mtype))
         self.protocol.send_message(response, self._exchange_monitor_factory(request))
 
-    def send_empty_ack(self, request):
+    def send_empty_ack(self, request, _reason="takes too long"):
         """Send separate empty ACK when response preparation takes too long.
 
         Currently, this can happen only once per Responder, that is, when the
         last block1 has been transferred and the first block2 is not ready
         yet."""
 
-        self.log.debug("Response preparation takes too long - sending empty ACK.")
+        self.log.debug("Response preparation %s - sending empty ACK."%_reason)
         ack = Message(mtype=ACK, code=EMPTY, payload=b"")
         # not going via send_response because it's all only about the message id
         ack.remote = request.remote
@@ -1173,7 +1191,7 @@ class Responder(object):
             # this is the indicator that the request was just injected
             response.mtype = CON
 
-        if self._serverobservation is None:
+        if self._serverobservation is None or self._serverobservation.cancelled:
             if response.opt.observe is not None:
                 self.log.info("Dropping observe option from response (no server observation was created for this request)")
             response.opt.observe = None
@@ -1243,7 +1261,7 @@ class ServerObservation(object):
             # give it the time to finish add_observation and not worry about a
             # few milliseconds. (after all, this is a rare condition and people
             # will not test for it).
-            self.original_protocol.loop.call_later(cancellation_callback)
+            self.original_protocol.loop.call_soon(cancellation_callback)
         else:
             self.resource_cancellation_callback = cancellation_callback
 
@@ -1402,6 +1420,8 @@ class ClientObservation(object):
     def register_callback(self, callback):
         """Call the callback whenever a response to the message comes in, and
         pass the response to it."""
+        if self.cancelled:
+            return
         self.callbacks.append(callback)
         self._set_nonweak()
 
@@ -1409,6 +1429,9 @@ class ClientObservation(object):
         """Call the callback whenever something goes wrong with the
         observation, and pass an exception to the callback. After such a
         callback is called, no more callbacks will be issued."""
+        if self.cancelled:
+            callback(self._cancellation_reason)
+            return
         self.errbacks.append(callback)
         self._set_nonweak()
 
@@ -1426,8 +1449,11 @@ class ClientObservation(object):
             c(exception)
 
         self.cancel()
+        self._cancellation_reason = exception
 
     def cancel(self):
+        # FIXME determine whether this is called by anything other than error,
+        # and make it private so there is always a _cancellation_reason
         """Cease to generate observation or error events. This will not
         generate an error by itself."""
 
@@ -1440,6 +1466,8 @@ class ClientObservation(object):
         self.cancelled = True
 
         self._unregister()
+
+        self._cancellation_reason = None
 
     def _register(self, observation_dict, key):
         """Insert the observation into a dict (observation_dict) at the given

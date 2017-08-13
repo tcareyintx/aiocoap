@@ -35,7 +35,8 @@ class ResponseWrappingError(Error):
     An exception that is raised due to an unsuccessful but received response.
 
     A better relationship with :mod:`.numbers.codes` should be worked out to do
-    `except UnsupportedMediaType`.
+    ``except UnsupportedMediaType`` (similar to the various ``OSError``
+    subclasses).
     """
     def __init__(self, coapmessage):
         self.coapmessage = coapmessage
@@ -48,11 +49,20 @@ class ResponseWrappingError(Error):
 
 class ConstructionRenderableError(RenderableError):
     """
-    RenderableError that is constructed from class attrinutes :attr:`code` and
-    :attr:`message`
+    RenderableError that is constructed from class attributes :attr:`code` and
+    :attr:`message` (where the can be overridden in the constructor).
     """
-    code = codes.INTERNAL_SERVER_ERROR
-    message = ""
+
+    def __init__(self, message=None):
+        if message is not None:
+            self.message = message
+
+    def to_message(self):
+        from .message import Message
+        return Message(code=self.code, payload=self.message.encode('utf8'))
+
+    code = codes.INTERNAL_SERVER_ERROR #: Code assigned to messages built from it
+    message = "" #: Text sent in the built message's payload
 
 # FIXME: this should be comprehensive, maybe generted from the code list
 
@@ -62,8 +72,14 @@ class NotFound(ConstructionRenderableError):
 class MethodNotAllowed(ConstructionRenderableError):
     code = codes.METHOD_NOT_ALLOWED
 
-class UnsupportedMediaType(ConstructionRenderableError):
-    code = codes.UNSUPPORTED_MEDIA_TYPE
+class UnsupportedContentFormat(ConstructionRenderableError):
+    code = codes.UNSUPPORTED_CONTENT_FORMAT
+
+class Unauthorized(ConstructionRenderableError):
+    code = codes.UNAUTHORIZED
+
+# deprecated alias
+UnsupportedMediaType = UnsupportedContentFormat
 
 class BadRequest(ConstructionRenderableError):
     code = codes.BAD_REQUEST

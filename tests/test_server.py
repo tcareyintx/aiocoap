@@ -78,6 +78,11 @@ class ReplacingResource(aiocoap.resource.Resource):
         response = request.payload.replace(b'0', b'O')
         return aiocoap.Message(code=aiocoap.CONTENT, payload=response)
 
+class RootResource(aiocoap.resource.Resource):
+    @asyncio.coroutine
+    def render_get(self, request):
+        return aiocoap.Message(code=aiocoap.CONTENT, payload=b"Welcome to the test server")
+
 class TestingSite(aiocoap.resource.Site):
     def __init__(self):
         super(TestingSite, self).__init__()
@@ -87,6 +92,7 @@ class TestingSite(aiocoap.resource.Site):
         self.add_resource(('big',), BigResource())
         self.add_resource(('slowbig',), SlowBigResource())
         self.add_resource(('replacing',), self.Subsite())
+        self.add_resource((), RootResource())
 
     class Subsite(aiocoap.resource.Site):
         def __init__(self):
@@ -122,13 +128,22 @@ def no_warnings(function, expected_warnings=None):
         startcount = len(self.handler)
         result = function(self, *args)
         messages = [m.msg for m in self.handler[startcount:] if m.levelno >= logging.WARNING]
-        self.assertEqual(messages, expected_warnings, "Function %s had unexpected warnings: %s"%(function.__name__, messages))
+        if len(expected_warnings) != len(messages) or not all(
+                e == m or (e.endswith('...') and m.startswith(e[:-3]))
+                for (e, m)
+                in zip(expected_warnings, messages)):
+            self.assertEqual(messages, expected_warnings, "Function %s had unexpected warnings: %s"%(function.__name__, messages))
         return result
     wrapped.__name__ = function.__name__
     wrapped.__doc__ = function.__doc__
     return wrapped
 
 def precise_warnings(expected_warnings):
+    """Expect that the expected_warnings list are the very warnings shown
+    (no_warnings is a special case with []).
+
+    "precise" is a bit of a misnomer here; the expected warnings may end with
+    "..." indicating that the rest of the line may be arbitrary."""
     return functools.partial(no_warnings, expected_warnings=expected_warnings)
 
 # fixtures
@@ -370,12 +385,21 @@ class TestServer(WithTestServer, WithClient):
         self.assertEqual(response.code, aiocoap.CONTENT, "Replacing resource could not be POSTed to successfully")
         self.assertEqual(response.payload, testpattern.replace(b"0", b"O"), "Replacing resource did not replace as expected when POSTed")
 
-#logging.basicConfig()
-#logging.getLogger("coap").setLevel(logging.DEBUG)
-#logging.getLogger("coap-server").setLevel(logging.INFO)
+    @no_warnings
+    def test_root_resource(self):
+        request = self.build_request()
+        request.opt.uri_path = []
+        response = self.fetch_response(request)
+        self.assertEqual(response.code, aiocoap.CONTENT, "Root resource was not found")
 
 # for testing the server standalone
 if __name__ == "__main__":
+    import sys
+    if '-v' in sys.argv:
+        logging.basicConfig()
+        logging.getLogger("coap").setLevel(logging.DEBUG)
+        logging.getLogger("coap-server").setLevel(logging.DEBUG)
+
     print("Running test server")
     s = WithTestServer()
     s.setUp()
